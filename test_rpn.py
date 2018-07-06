@@ -21,9 +21,7 @@ def test_rpn(net, test_data, cfg):
                                    ratios=cfg.anchor_ratios, rpn_pre_nms_top_n=cfg.rpn_pre_nms_top_n,
                                    rpn_post_nms_top_n=cfg.rpn_post_nms_top_n,
                                    rpn_nms_threshold=cfg.rpn_nms_threshold, rpn_min_size=cfg.rpn_min_size)
-    rpn_loss = RPNLoss(cfg.rpn_batch_size)
     proposal_layer.initialize(ctx=ctx)
-    rpn_loss.initialize(ctx=ctx)
 
     if cfg.hybridize:
         net.hybridize()
@@ -33,10 +31,6 @@ def test_rpn(net, test_data, cfg):
 
     tic = time.time()
     btic = time.time()
-
-    # Create Metrics
-    log_metric = LogLossMetric(name='LogLoss', batch_size=cfg.rpn_batch_size)
-    smoothl1_metric = SmoothL1LossMetric(name='SmoothL1Loss', batch_size=cfg.rpn_batch_size)
     proposals = None
 
     for i, batch in enumerate(test_data):
@@ -44,16 +38,9 @@ def test_rpn(net, test_data, cfg):
         data_list = gluon.utils.split_and_load(batch[0], ctx_list=ctx, batch_axis=0)
         gt_box_list = gluon.utils.split_and_load(batch[1], ctx_list=ctx, batch_axis=0)
         im_info_list = gluon.utils.split_and_load(batch[2], ctx_list=ctx, batch_axis=0)
-        cls_loss_list = []
-        bbox_loss_list = []
-        label_list = []
 
         for data, gt_box, im_info in zip(data_list, gt_box_list, im_info_list):
-            rpn_cls_prob, rpn_bbox_pred, labels, bbox_targets = net(data, gt_box, im_info)
-            cls_loss, bbox_loss = rpn_loss(rpn_cls_prob, rpn_bbox_pred, labels, bbox_targets)
-            cls_loss_list.append(cls_loss)
-            bbox_loss_list.append(bbox_loss)
-            label_list.append(labels)
+            rpn_cls_prob, rpn_bbox_pred = net(data)
             proposal = proposal_layer(rpn_cls_prob, rpn_bbox_pred, im_info)
             # save predicted proposals in cpu memory
             # TODO save proposals by h5py
@@ -63,24 +50,18 @@ def test_rpn(net, test_data, cfg):
                                       dim=0)
             else:
                 proposals = proposal[:, 1:].resahpe(-1, cfg.rpn_post_nms_top_n, 4).as_in_context(mx.cpu())
-        log_metric.update(label_list, cls_loss_list)
-        smoothl1_metric.update(label_list, bbox_loss_list)
         if cfg.log_interval and not (i + 1) % cfg.log_interval:
-            name1, loss1 = log_metric.get()
-            name2, loss2 = smoothl1_metric.get()
-            logger.info('[Batch %d], Speed: %f samples/sec, %s=%f, %s=%f' % (
-                 i, batch_size / (time.time() - btic), name1, loss1, name2, loss2))
+            logger.info('[Batch %d], Speed: %f samples/sec' % (
+                 i, batch_size / (time.time() - btic)))
         btic = time.time()
 
-    name1, loss1 = log_metric.get()
-    name2, loss2 = smoothl1_metric.get()
-    logger.info('[Done] Testing cost: %f, %s=%f, %s=%f' % ((time.time() - tic), name1, loss1, name2, loss2))
     save_proposals()
+    logger.info('[Done] Testing cost: %f' % (time.time() - tic))
 
 
 def save_proposals():
     # TODO save proposals by h5py
-    return
+    raise NotImplementedError
 
 
 def get_dataset(dataset_name, dataset_path):
@@ -88,7 +69,7 @@ def get_dataset(dataset_name, dataset_path):
         dataset = VOCDetection(splits=[(2007, 'trainval'), (2012, 'trainval')],
                                transform=FasterRCNNDefaultValTransform(cfg.image_size, cfg.image_max_size,
                                                                        cfg.image_mean, cfg.image_std),
-                               root=dataset_path, preload_label=False)
+                               root=dataset_path, preload_label=True)
     else:
         raise NotImplementedError('Dataset: {} not implemented.'.format(dataset_name))
     return dataset
@@ -97,6 +78,7 @@ def get_dataset(dataset_name, dataset_path):
 def get_dataloader(dataset, cfg):
     """Get dataloader."""
     data_loader = DetectionDataLoader(dataset, cfg.batch_size, shuffle=False, last_batch='keep',
+                                      image_max_size=cfg.image_max_size, label_max_size=20,
                                       num_workers=cfg.num_workers)
     return data_loader
 
@@ -136,7 +118,7 @@ if __name__ == '__main__':
               ratios=cfg.anchor_ratios, allowed_border=cfg.allowed_border, rpn_batch_size=cfg.rpn_batch_size,
               rpn_fg_fraction=cfg.rpn_fg_fraction, rpn_positive_threshold=cfg.rpn_positive_threshold,
               rpn_negative_threshold=cfg.rpn_negative_threshold)
-    net.load_params(cfg.model_params.strip(), ctx=ctx)
+    net.load_parameters(cfg.model_params.strip(), ctx=ctx)
 
     test_dataset = get_dataset(cfg.dataset, cfg.dataset_path)
     test_data = get_dataloader(test_dataset, cfg)

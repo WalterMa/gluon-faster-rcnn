@@ -23,6 +23,16 @@ class BaseDataset(dataset.Dataset):
     def __len__(self):
         raise NotImplementedError
 
+    def get_imglist(self):
+        """get imglist, used to generate record data
+
+        Parameters:
+        ----------
+        fname : str
+            saved filename
+        """
+        raise NotImplementedError
+
     @property
     def classes(self):
         raise NotImplementedError

@@ -11,7 +11,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Demo Faster RCNN')
     parser.add_argument('--network', type=str, default=default.network,
                         help='network name')
-    parser.add_argument('--image-path', type=str, default='./data/demo/person.jpg',
+    parser.add_argument('--image-path', type=str, default='./data/007944.jpg',
                         help='dataset name')
     parser.add_argument('--model-params', type=str, default=default.model_params,
                         help='model params path')
@@ -58,14 +58,16 @@ if __name__ == '__main__':
                      bbox_nms_threshold=cfg.bbox_nms_threshold, bbox_nms_top_n=cfg.bbox_nms_top_n,
                      bbox_mean=cfg.bbox_mean, bbox_std=cfg.bbox_std)
 
-    net.load_params(cfg.model_params.strip(), ctx=ctx)
+    net.load_parameters(cfg.model_params.strip(), ctx=ctx)
 
     data, orig_img, im_info = load_test(cfg.image_path, size=cfg.image_size, max_size=cfg.image_max_size,
                                         mean=cfg.image_mean, std=cfg.image_std)
 
     # get prediction results
-    cls, scores, bboxes = net(data.as_in_context(ctx), None, im_info.as_in_context(ctx))
+    cls, scores, bboxes = net(data.as_in_context(ctx), im_info.as_in_context(ctx))
 
     ax = plot_bbox(orig_img, bboxes[0], scores[0], cls[0], class_names=classes)
+
+    ax.set_axis_off()
 
     plt.show()

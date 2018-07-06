@@ -60,7 +60,7 @@ def train_rpn(net, train_data, cfg):
                 bbox_loss_list = []
                 label_list = []
                 for data, gt_box, im_info in zip(data_list, gt_box_list, im_info_list):
-                    rpn_cls_prob, rpn_bbox_pred, labels, bbox_targets = net(data, gt_box, im_info)
+                    rpn_cls_prob, rpn_bbox_pred, labels, bbox_targets = net(data, im_info, gt_box)
                     cls_loss, bbox_loss = rpn_loss(rpn_cls_prob, rpn_bbox_pred, labels, bbox_targets)
                     cls_loss_list.append(cls_loss)
                     bbox_loss_list.append(bbox_loss)
@@ -85,7 +85,7 @@ def train_rpn(net, train_data, cfg):
 
 def save_params(net, epoch, save_interval, prefix):
     if save_interval and epoch % save_interval == 0:
-        net.save_params('{:s}_{:04d}.params'.format(prefix, epoch))
+        net.save_parameters('{:s}_{:04d}.params'.format(prefix, epoch))
 
 
 def get_rpn(pretrained_base, cfg):
@@ -102,7 +102,7 @@ def get_dataset(dataset, dataset_path):
                                      transform=FasterRCNNDefaultTrainTransform(cfg.image_size, cfg.image_max_size,
                                                                                cfg.image_mean, cfg.image_std,
                                                                                random_flip=True),
-                                     root=dataset_path, preload_label=False)
+                                     root=dataset_path, preload_label=True)
     else:
         raise NotImplementedError('Dataset: {} not implemented.'.format(dataset))
     return train_dataset
@@ -111,6 +111,7 @@ def get_dataset(dataset, dataset_path):
 def get_dataloader(train_dataset, cfg):
     """Get dataloader."""
     train_loader = DetectionDataLoader(train_dataset, cfg.batch_size, shuffle=True, last_batch='rollover',
+                                       image_max_size=cfg.image_max_size, label_max_size=20,
                                        num_workers=cfg.num_workers)
     return train_loader
 
@@ -158,7 +159,7 @@ if __name__ == '__main__':
     ctx = ctx if ctx else [mx.cpu()]
     if cfg.resume:
         net = get_rpn(pretrained_base=False, cfg=cfg)
-        net.load_params(cfg.model_params.strip(), ctx=ctx)
+        net.load_parameters(cfg.model_params.strip(), ctx=ctx)
     else:
         net = get_rpn(pretrained_base=True, cfg=cfg)
         net.initialize(ctx=ctx)

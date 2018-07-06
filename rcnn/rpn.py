@@ -68,7 +68,7 @@ class RPN(HybridBlock):
                     param.initialize(init=init, ctx=ctx, force_reinit=force_reinit)
 
     # noinspection PyMethodOverriding
-    def hybrid_forward(self, F, x, gt_boxes, im_info):
+    def hybrid_forward(self, F, x, im_info=None, gt_boxes=None):
         x = self.feature(x)
         rpn_cls_prob, rpn_bbox_pred = self.rpn(x)
         if autograd.is_training():

@@ -79,6 +79,19 @@ class VOCDetection(BaseDataset):
             return self._transform(img, label)
         return img, label
 
+    def get_imglist(self):
+        str_list = []
+        num_images = len(self._items)
+        for idx in range(num_images):
+            label = self._label_cache[idx] if self._label_cache else self._load_label(idx)
+            img_id = self._items[idx]
+            img_path = self._image_path.format(*img_id)
+            # index 2 6 (object0), (object1), …, image_path
+            # 2 = len(2, 6), 6 = len(object_label)
+            str_list.append('\t'.join([str(idx), '2', '6'] + ["{0:.2f}".format(x) for x in label.flatten()] +
+                                      [img_path]) + '\n')
+        return str_list
+
     def _load_items(self, splits):
         """Load individual image indices from splits."""
         ids = []

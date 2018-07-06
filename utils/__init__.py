@@ -33,10 +33,7 @@ def fix_net_params(net, name='vgg16'):
     Fix network parameters, fixed_params defined in ./config.py
     """
     fixed_params = {
-        'vgg11': vgg16_fixed_params,
-        'vgg13': vgg16_fixed_params,
-        'vgg16': vgg16_fixed_params,
-        'vgg19': vgg16_fixed_params
+        'vgg16': vgg16_fixed_params
     }
     if name not in fixed_params:
         raise ValueError(

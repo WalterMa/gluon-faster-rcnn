@@ -8,14 +8,12 @@ class SmoothL1LossMetric(mx.metric.EvalMetric):
         super(SmoothL1LossMetric, self).__init__(name, output_names, label_names)
         self._batch_size = batch_size
 
-    def update(self, labels, preds):
+    def update(self, labels=None, preds=None):
 
         if isinstance(preds, nd.ndarray.NDArray):
             preds = [preds]
-        if isinstance(labels, nd.ndarray.NDArray):
-            labels = [labels]
 
-        for label, pred in zip(labels, preds):
+        for pred in preds:
             # Since we normalized by divide positive instance num when compute loss,
             # we simply add here
             self.sum_metric += nd.sum(pred).asscalar()
@@ -28,14 +26,12 @@ class LogLossMetric(mx.metric.EvalMetric):
         super(LogLossMetric, self).__init__(name, output_names, label_names)
         self._batch_size = batch_size
 
-    def update(self, labels, preds):
+    def update(self, labels=None, preds=None):
 
         if isinstance(preds, nd.ndarray.NDArray):
             preds = [preds]
-        if isinstance(labels, nd.ndarray.NDArray):
-            labels = [labels]
 
-        for label, pred in zip(labels, preds):
+        for pred in preds:
             # Since we already normalized by divide rpn or roi batch size when compute loss,
             # we simply add here
             self.sum_metric += nd.sum(pred).asscalar()

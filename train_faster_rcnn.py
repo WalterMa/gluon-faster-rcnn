@@ -7,7 +7,7 @@ from rcnn import FasterRCNN
 from rcnn.loss import RPNLoss, RCNNLoss
 from rcnn.metrics.loss_metric import LogLossMetric, SmoothL1LossMetric
 from rcnn.metrics.voc_detection import VOC07MApMetric
-from dataset import VOCDetection
+from dataset import VOCDetection, RecordDataset
 from utils import set_random_seed, fix_net_params
 from utils.logger import logger
 from utils.config import default, generate_config
@@ -40,10 +40,8 @@ def train_faster_rcnn(net, train_data, val_data, cfg):
     # New list to store loss and label for backward and update metric
     rpn_cls_loss_list = []
     rpn_bbox_loss_list = []
-    rpn_label_list = []
     rcnn_cls_loss_list = []
     rcnn_bbox_loss_list = []
-    rcnn_label_list = []
 
     logger.info('Config for end to end training FasterRCNN:\n%s' % cfg)
     logger.info('Start training from [Epoch %d]' % args.start_epoch)
@@ -75,10 +73,8 @@ def train_faster_rcnn(net, train_data, val_data, cfg):
             # Empty lists
             rpn_cls_loss_list[:] = []
             rpn_bbox_loss_list[:] = []
-            rpn_label_list[:] = []
             rcnn_cls_loss_list[:] = []
             rcnn_bbox_loss_list[:] = []
-            rcnn_label_list[:] = []
             # Split and load data for multi-gpu
             batch_size = batch[0].shape[0]
             data_list = gluon.utils.split_and_load(batch[0], ctx_list=ctx, batch_axis=0)
@@ -89,24 +85,22 @@ def train_faster_rcnn(net, train_data, val_data, cfg):
             with autograd.record():
                 for data, gt_box, im_info in zip(data_list, gt_box_list, im_info_list):
                     rpn_cls_prob, rpn_bbox_pred, rpn_label, rpn_bbox_target, \
-                    rcnn_cls_prob, rcnn_bbox_pred, rcnn_label, rcnn_bbox_target = net(data, gt_box, im_info)
+                    rcnn_cls_prob, rcnn_bbox_pred, rcnn_label, rcnn_bbox_target = net(data, im_info, gt_box)
                     rpn_cls_loss, rpn_bbox_loss = \
                         rpn_loss(rpn_cls_prob, rpn_bbox_pred, rpn_label, rpn_bbox_target)
                     rcnn_cls_loss, rcnn_bbox_loss = \
                         rcnn_loss(rcnn_cls_prob, rcnn_bbox_pred, rcnn_label, rcnn_bbox_target)
                     rpn_cls_loss_list.append(rpn_cls_loss)
                     rpn_bbox_loss_list.append(rpn_bbox_loss)
-                    rpn_label_list.append(rpn_label)
                     rcnn_cls_loss_list.append(rcnn_cls_loss)
                     rcnn_bbox_loss_list.append(rcnn_bbox_loss)
-                    rcnn_label_list.append(rcnn_label)
             # Backward and update parameters and metrics
             autograd.backward(rpn_cls_loss_list + rpn_bbox_loss_list + rcnn_cls_loss_list + rcnn_bbox_loss_list)
             trainer.step(1)
-            rpn_log_metric.update(rpn_label_list, rpn_cls_loss_list)
-            rpn_smoothl1_metric.update(rpn_label_list, rpn_bbox_loss_list)
-            rcnn_log_metric.update(rcnn_label_list, rcnn_cls_loss_list)
-            rcnn_smoothl1_metric.update(rcnn_label_list, rcnn_bbox_loss_list)
+            rpn_log_metric.update(preds=rpn_cls_loss_list)
+            rpn_smoothl1_metric.update(preds=rpn_bbox_loss_list)
+            rcnn_log_metric.update(preds=rcnn_cls_loss_list)
+            rcnn_smoothl1_metric.update(preds=rcnn_bbox_loss_list)
 
             # Log training states
             if cfg.log_interval and not (i + 1) % cfg.log_interval:
@@ -157,7 +151,7 @@ def validate_faster_rcnn(net, val_data, cfg):
         im_info_list = gluon.utils.split_and_load(batch[2], ctx_list=ctx, batch_axis=0)
         for data, gt_box, im_info in zip(data_list, gt_box_list, im_info_list):
             # get prediction results
-            cls, scores, bboxes = net(data, gt_box, im_info)
+            cls, scores, bboxes = net(data, im_info)
             pred_cls.append(cls)
             pred_scores.append(scores)
             pred_bboxes.append(bboxes)
@@ -175,11 +169,11 @@ def validate_faster_rcnn(net, val_data, cfg):
 def save_params(net, best_map, current_map, epoch, save_interval, prefix):
     if current_map > best_map[0]:
         best_map[0] = current_map
-        net.save_params('{:s}_best.params'.format(prefix, epoch, current_map))
+        net.save_parameters('{:s}_best.params'.format(prefix, epoch, current_map))
         with open(prefix + '_best_map.log', 'a') as f:
             f.write('\n{:04d}:\t{:.4f}'.format(epoch, current_map))
     if save_interval and epoch % save_interval == 0:
-        net.save_params('{:s}_{:04d}_{:.4f}.params'.format(prefix, epoch, current_map))
+        net.save_parameters('{:s}_{:04d}_{:.4f}.params'.format(prefix, epoch, current_map))
 
 
 def get_faster_rcnn(pretrained_base, cfg):
@@ -204,11 +198,25 @@ def get_dataset(dataset, dataset_path):
                                      transform=FasterRCNNDefaultTrainTransform(cfg.image_size, cfg.image_max_size,
                                                                                cfg.image_mean, cfg.image_std,
                                                                                random_flip=True),
-                                     root=dataset_path, preload_label=False)
+                                     root=dataset_path, preload_label=True)
         val_dataset = VOCDetection(splits=[(2007, 'test')],
                                    transform=FasterRCNNDefaultValTransform(cfg.image_size, cfg.image_max_size,
                                                                            cfg.image_mean, cfg.image_std),
-                                   root=dataset_path, preload_label=False)
+                                   root=dataset_path, preload_label=True)
+    elif dataset.lower() == 'rec':
+        class_names = ('aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car',
+                       'cat', 'chair', 'cow', 'diningtable', 'dog', 'horse', 'motorbike',
+                       'person', 'pottedplant', 'sheep', 'sofa', 'train', 'tvmonitor')
+
+        train_dataset = RecordDataset(root='./data', filename='voc_0712_trainval.rec',
+                                      transform=FasterRCNNDefaultTrainTransform(cfg.image_size, cfg.image_max_size,
+                                                                                cfg.image_mean, cfg.image_std,
+                                                                                random_flip=True),
+                                      class_names=class_names)
+        val_dataset = RecordDataset(root='./data', filename='voc_07_test.rec',
+                                    transform=FasterRCNNDefaultValTransform(cfg.image_size, cfg.image_max_size,
+                                                                            cfg.image_mean, cfg.image_std),
+                                    class_names=class_names)
     else:
         raise NotImplementedError('Dataset: {} not implemented.'.format(dataset))
     return train_dataset, val_dataset
@@ -281,7 +289,7 @@ if __name__ == '__main__':
 
     if cfg.resume:
         net = get_faster_rcnn(pretrained_base=False, cfg=cfg)
-        net.load_params(cfg.model_params.strip(), ctx=ctx)
+        net.load_parameters(cfg.model_params.strip(), ctx=ctx)
     else:
         net = get_faster_rcnn(pretrained_base=True, cfg=cfg)
         net.initialize(ctx=ctx)

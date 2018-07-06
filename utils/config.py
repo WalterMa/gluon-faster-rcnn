@@ -8,7 +8,7 @@ default.network = 'vgg16'
 default.feature_stride = 16
 default.hybridize = True
 # dataset settings
-default.dataset = 'voc'
+default.dataset = 'voc'  # optional: voc, rec
 default.dataset_path = './data/VOCdevkit'
 default.proposal_path = 'model/rpn_vgg16'
 # data pre-processing settings
@@ -54,7 +54,7 @@ default.wd = 0.0005
 default.momentum = 0.9
 # log and saved path
 default.resume = False
-default.model_params = 'model/faster-rcnn_vgg16_0000.params'
+default.model_params = 'model/faster-rcnn_vgg16_best.params'
 default.save_prefix = 'model/faster-rcnn_vgg16'
 default.save_interval = 1
 default.log_interval = 10

@@ -51,7 +51,10 @@ You may also need a GPU with at least 8GB memory for training.
 
 Currently, this repo only support voc2007/2012 dataset. 
 But you could easily modify or create your own dataset by reference 
-[Gluon-CV dataset](https://github.com/dmlc/gluon-cv/tree/master/gluoncv/data) code.
+[Gluon-CV dataset](https://github.com/dmlc/gluon-cv/tree/master/gluoncv/data) code, or generate and using 
+[record dataset](./tools/README.md).
+
+Note: Record Dataset is only available in num_workers=0, due to MXNet [issue](https://github.com/apache/incubator-mxnet/issues/9974).
 
 3. We need the following three files from Pascal VOC:
 

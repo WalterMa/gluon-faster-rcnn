@@ -9,10 +9,7 @@ def get_model_conv_block(name, **kwargs):
         The base_model convolution part
     """
     models = {
-        'vgg11': VGGConvBlock,
-        'vgg13': VGGConvBlock,
-        'vgg16': VGGConvBlock,
-        'vgg19': VGGConvBlock
+        'vgg16': VGGConvBlock
     }
     name = name.lower()
     if name not in models:
@@ -30,10 +27,7 @@ def get_model_rcnn_block(name, **kwargs):
         The base_model convolution part
     """
     models = {
-        'vgg11': VGGFastRCNNHead,
-        'vgg13': VGGFastRCNNHead,
-        'vgg16': VGGFastRCNNHead,
-        'vgg19': VGGFastRCNNHead
+        'vgg16': VGGFastRCNNHead
     }
     name = name.lower()
     if name not in models:

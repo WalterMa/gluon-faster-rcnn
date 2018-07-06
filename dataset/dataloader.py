@@ -5,59 +5,47 @@ from mxnet import context
 from mxnet.gluon.data import DataLoader
 
 
-def default_pad_batchify_fn(data):
-    """Collate data into batch, labels are padded to same shape"""
-    if isinstance(data[0], nd.NDArray):
-        # 2. Stack image.shape.shape.shape(c ,h, w) and im_info.shape(3,)
-        if len(data[0].shape) == 3:
-            # padding image
-            pad_h = max([img.shape[1] for img in data] + [1, ])
-            pad_w = max([img.shape[2] for img in data] + [1, ])
-            buf = nd.zeros((len(data), data[0].shape[0], pad_h, pad_w), dtype=data[0].dtype)
-            for i, img in enumerate(data):
-                buf[i][:, :img.shape[1], :img.shape[2]] = img
-            return nd.array(buf, dtype=data[0].dtype)
-        return nd.stack(*data)
-    elif isinstance(data[0], tuple):
+class FasterRCNNDefaultBatchify:
+
+    def __init__(self, image_max_size, label_max_size, multiprocessing):
+        if multiprocessing:
+            # Use shared memory for collating data into batch
+            self._ctx = context.Context('cpu_shared', 0)
+        else:
+            self._ctx = None
+        self._image_max_size = image_max_size
+        self._label_max_size = label_max_size
+
+    def __call__(self, data):
+        """Collate data into batch, images, im_info and labels are padded to same shape"""
         # 1. Collect image, label, im_info batch
         data = zip(*data)
-        return [default_pad_batchify_fn(i) for i in data]
-    else:
-        # 2. Padding label
-        data = np.asarray(data)
-        pad = max([l.shape[0] for l in data] + [1,])
-        buf = np.full((len(data), pad, data[0].shape[-1]), fill_value=-1, dtype=data[0].dtype)
-        for i, l in enumerate(data):
-            buf[i][:l.shape[0], :] = l
-        return nd.array(buf)
+        return [self.batchify(i) for i in data]
 
-
-def default_mp_pad_batchify_fn(data):
-    """Use shared memory for collating data into batch, labels are padded to same shape"""
-    if isinstance(data[0], nd.NDArray):
-        if len(data[0].shape) == 3:
-            # padding image
-            pad_h = max([img.shape[1] for img in data] + [1, ])
-            pad_w = max([img.shape[2] for img in data] + [1, ])
-            buf = nd.zeros((len(data), data[0].shape[0], pad_h, pad_w), dtype=data[0].dtype,
-                           ctx=context.Context('cpu_shared', 0))
+    def batchify(self, data):
+        data_shape = len(data[0].shape)
+        if not isinstance(data[0], nd.NDArray):
+            tmp = []
+            for i in data:
+                tmp.append(nd.array(i, ctx=self._ctx))
+            data = tmp
+        if data_shape == 1:
+            # 2. Stack im_info
+            return nd.stack(*data)
+        elif data_shape == 2:
+            # 2. Padding label
+            buf = nd.full((len(data), self._label_max_size, data[0].shape[-1]), val=-1, ctx=self._ctx)
+            for i, l in enumerate(data):
+                buf[i][:l.shape[0], :] = l
+            return buf
+        elif data_shape == 3:
+            # 2. Padding image
+            buf = nd.zeros((len(data), data[0].shape[0], self._image_max_size, self._image_max_size), ctx=self._ctx)
             for i, img in enumerate(data):
                 buf[i][:, :img.shape[1], :img.shape[2]] = img
             return buf
-        out = nd.empty((len(data),) + data[0].shape, dtype=data[0].dtype,
-                       ctx=context.Context('cpu_shared', 0))
-        return nd.stack(*data, out=out)
-    elif isinstance(data[0], tuple):
-        data = zip(*data)
-        return [default_mp_pad_batchify_fn(i) for i in data]
-    else:
-        data = np.asarray(data)
-        batch_size = len(data)
-        pad = max([l.shape[0] for l in data] + [1,])
-        buf = np.full((batch_size, pad, data[0].shape[-1]), -1, dtype=data[0].dtype)
-        for i, l in enumerate(data):
-            buf[i][:l.shape[0], :] = l
-        return nd.array(buf, ctx=context.Context('cpu_shared', 0))
+        else:
+            raise NotImplementedError
 
 
 class DetectionDataLoader(DataLoader):
@@ -120,13 +108,10 @@ class DetectionDataLoader(DataLoader):
 
     """
     def __init__(self, dataset, batch_size=None, shuffle=False, sampler=None,
-                 last_batch=None, batch_sampler=None, batchify_fn=None,
+                 last_batch=None, batch_sampler=None, batchify_fn=None, image_max_size=1000, label_max_size=100,
                  num_workers=0):
         if batchify_fn is None:
-            if num_workers > 0:
-                batchify_fn = default_mp_pad_batchify_fn
-            else:
-                batchify_fn = default_pad_batchify_fn
+            batchify_fn = FasterRCNNDefaultBatchify(image_max_size, label_max_size, num_workers)
         super(DetectionDataLoader, self).__init__(
             dataset, batch_size, shuffle, sampler, last_batch,
             batch_sampler, batchify_fn, num_workers)

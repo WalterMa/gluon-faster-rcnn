@@ -36,7 +36,7 @@ def test_faster_rcnn(net, test_data, cfg):
             im_info_list = gluon.utils.split_and_load(batch[2], ctx_list=ctx, batch_axis=0)
             for data, gt_box, im_info in zip(data_list, gt_box_list, im_info_list):
                 # get prediction results
-                cls, scores, bboxes = net(data, gt_box, im_info)
+                cls, scores, bboxes = net(data, im_info)
                 pred_cls.append(cls)
                 pred_scores.append(scores)
                 pred_bboxes.append(bboxes)
@@ -57,7 +57,7 @@ def get_dataset(dataset, dataset_path):
         dataset = VOCDetection(splits=[(2007, 'test')],
                                transform=FasterRCNNDefaultValTransform(cfg.image_size, cfg.image_max_size,
                                                                        cfg.image_mean, cfg.image_std),
-                               root=dataset_path, preload_label=False)
+                               root=dataset_path, preload_label=True)
     else:
         raise NotImplementedError('Dataset: {} not implemented.'.format(dataset))
     return dataset
@@ -124,7 +124,7 @@ if __name__ == '__main__':
                      bbox_nms_threshold=cfg.bbox_nms_threshold, bbox_nms_top_n=cfg.bbox_nms_top_n,
                      bbox_mean=cfg.bbox_mean, bbox_std=cfg.bbox_std)
 
-    net.load_params(cfg.model_params.strip(), ctx=ctx)
+    net.load_parameters(cfg.model_params.strip(), ctx=ctx)
 
     map_name, mean_ap = test_faster_rcnn(net, test_data, cfg)
     result_msg = '\n'.join(['%s=%f' % (k, v) for k, v in zip(map_name, mean_ap)])

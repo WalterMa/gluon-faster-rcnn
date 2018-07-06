@@ -62,14 +62,16 @@ class FasterRCNN(HybridBlock):
                     param.initialize(init=init, ctx=ctx, force_reinit=False)
 
     # noinspection PyMethodOverriding
-    def hybrid_forward(self, F, x, gt_boxes, im_info):
+    def hybrid_forward(self, F, x, im_info, gt_boxes=None):
         x = self.feature(x)
         rpn_cls_prob, rpn_bbox_pred = self.rpn(x)
         rois = self.proposal(rpn_cls_prob, rpn_bbox_pred, im_info)
         if autograd.is_training():
             # When training, get and output anchor/proposal targets for loss computation
             rpn_label, rpn_bbox_target = self.anchor_target(rpn_cls_prob, gt_boxes, im_info)
-            gt_boxes[:, :, 4] += 1  # Add 1 for background class
+            # Add 1 to cls_id for background class
+            gt_boxes = F.concat(gt_boxes.slice_axis(axis=-1, begin=0, end=4),
+                                gt_boxes.slice_axis(axis=-1, begin=4, end=5) + 1, dim=-1)
             rois, rois_label, rois_bbox_target = self.proposal_target(rois, gt_boxes)
             rcnn_cls_prob, rcnn_bbox_pred = self.rcnn(x, rois)
             return rpn_cls_prob, rpn_bbox_pred, rpn_label, rpn_bbox_target, \
