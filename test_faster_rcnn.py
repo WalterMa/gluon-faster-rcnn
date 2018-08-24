@@ -1,16 +1,19 @@
 import argparse
+import logging
+from tqdm import tqdm
+import os
+# disable autotune
+os.environ['MXNET_CUDNN_AUTOTUNE_DEFAULT'] = '0'
 import mxnet as mx
 from mxnet import gluon
+from mxnet.gluon.data import DataLoader
 from rcnn import FasterRCNN
 from rcnn.metrics.voc_detection import VOC07MApMetric
 from dataset import VOCDetection
 from utils.logger import logger
 from utils.config import default, generate_config
-from dataset.dataloader import DetectionDataLoader
-from rcnn.transforms import FasterRCNNDefaultValTransform
-import os
-import logging
-from tqdm import tqdm
+from dataset.batchify import FasterRCNNDefaultBatchify
+from dataset.transforms import FasterRCNNDefaultValTransform
 
 
 def test_faster_rcnn(net, test_data, cfg):
@@ -65,8 +68,9 @@ def get_dataset(dataset, dataset_path):
 
 def get_dataloader(dataset, cfg):
     """Get dataloader."""
-    loader = DetectionDataLoader(dataset, cfg.batch_size, False, last_batch='keep',
-                                 num_workers=cfg.num_workers)
+    loader = DataLoader(dataset, cfg.batch_size, False, last_batch='keep',
+                        batchify_fn=FasterRCNNDefaultBatchify(cfg.image_max_size, cfg.label_max_size,
+                                                              cfg.num_workers), num_workers=cfg.num_workers)
     return loader
 
 
@@ -86,9 +90,6 @@ def parse_args():
 
 
 if __name__ == '__main__':
-    # set 0 to disable Running performance tests
-    # cmd: set MXNET_CUDNN_AUTOTUNE_DEFAULT=0
-
     args = parse_args()
     cfg = generate_config(vars(args))
 
@@ -113,7 +114,8 @@ if __name__ == '__main__':
 
     net = FasterRCNN(network=cfg.network, pretrained_base=False, batch_size=cfg.batch_size, num_classes=cfg.num_classes,
                      scales=cfg.anchor_scales, ratios=cfg.anchor_ratios, feature_stride=cfg.feature_stride,
-                     allowed_border=cfg.allowed_border, rpn_batch_size=cfg.rpn_batch_size,
+                     base_size=cfg.base_size, allowed_border=cfg.allowed_border, rpn_batch_size=cfg.rpn_batch_size,
+                     rpn_channels=cfg.rpn_channels, roi_mode=cfg.roi_mode, roi_size=cfg.roi_size,
                      rpn_fg_fraction=cfg.rpn_fg_fraction, rpn_positive_threshold=cfg.rpn_positive_threshold,
                      rpn_negative_threshold=cfg.rpn_negative_threshold,
                      rpn_pre_nms_top_n=cfg.rpn_test_pre_nms_top_n, rpn_post_nms_top_n=cfg.rpn_test_post_nms_top_n,

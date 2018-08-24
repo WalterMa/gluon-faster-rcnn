@@ -1,43 +1,259 @@
-from mxnet import initializer
+"""VGG, implemented in Gluon."""
+__all__ = ['VGG',
+           'vgg11', 'vgg13', 'vgg16', 'vgg19',
+           'vgg11_bn', 'vgg13_bn', 'vgg16_bn', 'vgg19_bn',
+           'vgg16_features',
+           'get_vgg']
+
+from mxnet.context import cpu
+from mxnet.initializer import Xavier
+from mxnet.gluon.block import HybridBlock
 from mxnet.gluon import nn
-from mxnet.gluon import HybridBlock
 
 
-class VGGConvBlock(HybridBlock):
+class VGG(HybridBlock):
+    r"""VGG model from the `"Very Deep Convolutional Networks for Large-Scale Image Recognition"
+    <https://arxiv.org/abs/1409.1556>`_ paper.
 
-    def __init__(self, base_model, **kwargs):
-        super(VGGConvBlock, self).__init__(**kwargs)
-        self.features = nn.HybridSequential()
-        # Exclude last 5 vgg feature layers (1 max pooling + 2 * (fc + dropout))
-        for layer in base_model.features[:-5]:
-            self.features.add(layer)
+    Parameters
+    ----------
+    layers : list of int
+        Numbers of layers in each feature block.
+    filters : list of int
+        Numbers of filters in each feature block. List length should match the layers.
+    classes : int, default 1000
+        Number of classification classes.
+    batch_norm : bool, default False
+        Use batch normalization.
+    """
 
-    def hybrid_forward(self, F, x, *args, **kwargs):
+    def __init__(self, layers, filters, classes=1000, batch_norm=False, **kwargs):
+        super(VGG, self).__init__(**kwargs)
+        assert len(layers) == len(filters)
+        with self.name_scope():
+            self.features = self._make_features(layers, filters, batch_norm)
+            self.features.add(nn.Dense(4096, activation='relu',
+                                       weight_initializer='normal',
+                                       bias_initializer='zeros'))
+            self.features.add(nn.Dropout(rate=0.5))
+            self.features.add(nn.Dense(4096, activation='relu',
+                                       weight_initializer='normal',
+                                       bias_initializer='zeros'))
+            self.features.add(nn.Dropout(rate=0.5))
+            self.output = nn.Dense(classes,
+                                   weight_initializer='normal',
+                                   bias_initializer='zeros')
+
+    def _make_features(self, layers, filters, batch_norm):
+        featurizer = nn.HybridSequential(prefix='')
+        for i, num in enumerate(layers):
+            for _ in range(num):
+                featurizer.add(nn.Conv2D(filters[i], kernel_size=3, padding=1,
+                                         weight_initializer=Xavier(rnd_type='gaussian',
+                                                                   factor_type='out',
+                                                                   magnitude=2),
+                                         bias_initializer='zeros'))
+                if batch_norm:
+                    featurizer.add(nn.BatchNorm())
+                featurizer.add(nn.Activation('relu'))
+            featurizer.add(nn.MaxPool2D(strides=2))
+        return featurizer
+
+    def hybrid_forward(self, F, x):
         x = self.features(x)
+        x = self.output(x)
         return x
 
 
-class VGGFastRCNNHead(HybridBlock):
-
-    def __init__(self, base_model, num_classes, feature_stride, **kwargs):
-        super(VGGFastRCNNHead, self).__init__(**kwargs)
-        self.feature_stride = feature_stride
-        self.fc_layers = nn.HybridSequential()
-        # Include last 4 vgg feature layers (2 * (fc + dropout))
-        for layer in base_model.features[-4:]:
-            self.fc_layers.add(layer)
-        self.cls_score = nn.Dense(in_units=4096, units=num_classes, weight_initializer=initializer.Normal(0.01))
-        self.bbox_pred = nn.Dense(in_units=4096, units=num_classes * 4, weight_initializer=initializer.Normal(0.001))
-
-    # noinspection PyMethodOverriding
-    def hybrid_forward(self, F, feature_map, rois):
-        x = F.ROIPooling(data=feature_map, rois=rois, pooled_size=(7, 7), spatial_scale=1.0/self.feature_stride)
-        x = F.flatten(data=x)  # shape(roi_num, 512*7*7)
-        x = self.fc_layers(x)
-        cls_score = self.cls_score(x)
-        cls_prob = F.softmax(data=cls_score)  # shape(roi_num, num_classes)
-        bbox_pred = self.bbox_pred(x)  # shape(roi_num, num_classes*4)
-        return cls_prob, bbox_pred
+# Specification
+vgg_spec = {11: ([1, 1, 2, 2, 2], [64, 128, 256, 512, 512]),
+            13: ([2, 2, 2, 2, 2], [64, 128, 256, 512, 512]),
+            16: ([2, 2, 3, 3, 3], [64, 128, 256, 512, 512]),
+            19: ([2, 2, 4, 4, 4], [64, 128, 256, 512, 512])}
 
 
+# Constructors
+def get_vgg(num_layers, pretrained=False, ctx=cpu(),
+            root='~/.mxnet/models', **kwargs):
+    r"""VGG model from the `"Very Deep Convolutional Networks for Large-Scale Image Recognition"
+    <https://arxiv.org/abs/1409.1556>`_ paper.
 
+    Parameters
+    ----------
+    num_layers : int
+        Number of layers for the variant of densenet. Options are 11, 13, 16, 19.
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    ctx : Context, default CPU
+        The context in which to load the pretrained weights.
+    root : str, default ~/mxnet/models
+        Location for keeping the model parameters.
+    """
+    layers, filters = vgg_spec[num_layers]
+    net = VGG(layers, filters, **kwargs)
+    if pretrained:
+        from .model_store import get_model_file
+        batch_norm_suffix = '_bn' if kwargs.get('batch_norm') else ''
+        net.load_parameters(get_model_file('vgg%d%s' % (num_layers, batch_norm_suffix),
+                                           root=root), ctx=ctx)
+    return net
+
+
+def vgg11(**kwargs):
+    r"""VGG-11 model from the `"Very Deep Convolutional Networks for Large-Scale Image Recognition"
+    <https://arxiv.org/abs/1409.1556>`_ paper.
+
+    Parameters
+    ----------
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    ctx : Context, default CPU
+        The context in which to load the pretrained weights.
+    root : str, default '$MXNET_HOME/models'
+        Location for keeping the model parameters.
+    """
+    return get_vgg(11, **kwargs)
+
+
+def vgg13(**kwargs):
+    r"""VGG-13 model from the `"Very Deep Convolutional Networks for Large-Scale Image Recognition"
+    <https://arxiv.org/abs/1409.1556>`_ paper.
+
+    Parameters
+    ----------
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    ctx : Context, default CPU
+        The context in which to load the pretrained weights.
+    root : str, default '$MXNET_HOME/models'
+        Location for keeping the model parameters.
+    """
+    return get_vgg(13, **kwargs)
+
+
+def vgg16(**kwargs):
+    r"""VGG-16 model from the `"Very Deep Convolutional Networks for Large-Scale Image Recognition"
+    <https://arxiv.org/abs/1409.1556>`_ paper.
+
+    Parameters
+    ----------
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    ctx : Context, default CPU
+        The context in which to load the pretrained weights.
+    root : str, default '$MXNET_HOME/models'
+        Location for keeping the model parameters.
+    """
+    return get_vgg(16, **kwargs)
+
+
+def vgg19(**kwargs):
+    r"""VGG-19 model from the `"Very Deep Convolutional Networks for Large-Scale Image Recognition"
+    <https://arxiv.org/abs/1409.1556>`_ paper.
+
+    Parameters
+    ----------
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    ctx : Context, default CPU
+        The context in which to load the pretrained weights.
+    root : str, default '$MXNET_HOME/models'
+        Location for keeping the model parameters.
+    """
+    return get_vgg(19, **kwargs)
+
+
+def vgg11_bn(**kwargs):
+    r"""VGG-11 model with batch normalization from the
+    `"Very Deep Convolutional Networks for Large-Scale Image Recognition"
+    <https://arxiv.org/abs/1409.1556>`_ paper.
+
+    Parameters
+    ----------
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    ctx : Context, default CPU
+        The context in which to load the pretrained weights.
+    root : str, default '$MXNET_HOME/models'
+        Location for keeping the model parameters.
+    """
+    kwargs['batch_norm'] = True
+    return get_vgg(11, **kwargs)
+
+
+def vgg13_bn(**kwargs):
+    r"""VGG-13 model with batch normalization from the
+    `"Very Deep Convolutional Networks for Large-Scale Image Recognition"
+    <https://arxiv.org/abs/1409.1556>`_ paper.
+
+    Parameters
+    ----------
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    ctx : Context, default CPU
+        The context in which to load the pretrained weights.
+    root : str, default '$MXNET_HOME/models'
+        Location for keeping the model parameters.
+    """
+    kwargs['batch_norm'] = True
+    return get_vgg(13, **kwargs)
+
+
+def vgg16_bn(**kwargs):
+    r"""VGG-16 model with batch normalization from the
+    `"Very Deep Convolutional Networks for Large-Scale Image Recognition"
+    <https://arxiv.org/abs/1409.1556>`_ paper.
+
+    Parameters
+    ----------
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    ctx : Context, default CPU
+        The context in which to load the pretrained weights.
+    root : str, default '$MXNET_HOME/models'
+        Location for keeping the model parameters.
+    """
+    kwargs['batch_norm'] = True
+    return get_vgg(16, **kwargs)
+
+
+def vgg19_bn(**kwargs):
+    r"""VGG-19 model with batch normalization from the
+    `"Very Deep Convolutional Networks for Large-Scale Image Recognition"
+    <https://arxiv.org/abs/1409.1556>`_ paper.
+
+    Parameters
+    ----------
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    ctx : Context, default CPU
+        The context in which to load the pretrained weights.
+    root : str, default '$MXNET_HOME/models'
+        Location for keeping the model parameters.
+    """
+    kwargs['batch_norm'] = True
+    return get_vgg(19, **kwargs)
+
+
+def vgg16_features(pretrained=False, root='~/.mxnet/models', ctx=cpu(0), **kwargs):
+    r"""Get VGG-16 model feature extractor layers.
+
+    Parameters
+    ----------
+    pretrained : bool, default False
+        Whether to load the pretrained weights for model.
+    ctx : Context, default CPU
+        The context in which to load the pretrained weights.
+    root : str, default '$MXNET_HOME/models'
+        Location for keeping the model parameters.
+    """
+    model = vgg16(pretrained=pretrained, root=root, ctx=ctx, **kwargs)
+    features = nn.HybridSequential()
+    top_features = nn.HybridSequential()
+    # Exclude last 5 vgg feature layers (1 max pooling + 2 * (fc + dropout))
+    for layer in model.features[:-5]:
+        features.add(layer)
+    # Include last 4 vgg feature layers (2 * (fc + dropout))
+    for layer in model.features[-4:]:
+        top_features.add(layer)
+    return features, top_features

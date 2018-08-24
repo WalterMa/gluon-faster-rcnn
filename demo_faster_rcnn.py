@@ -1,10 +1,13 @@
 import argparse
+import os
+# disable autotune
+os.environ['MXNET_CUDNN_AUTOTUNE_DEFAULT'] = '0'
 import mxnet as mx
 from matplotlib import pyplot as plt
 from rcnn import FasterRCNN
 from utils.viz import plot_bbox
 from utils.config import default, generate_config
-from rcnn.transforms import load_test
+from dataset.transforms import load_test
 
 
 def parse_args():
@@ -29,9 +32,6 @@ def try_gpu():
 
 
 if __name__ == '__main__':
-    # set 0 to disable Running performance tests
-    # cmd: set MXNET_CUDNN_AUTOTUNE_DEFAULT=0
-
     args = parse_args()
     cfg = generate_config(vars(args))
 
@@ -47,7 +47,8 @@ if __name__ == '__main__':
 
     net = FasterRCNN(network=cfg.network, pretrained_base=False, batch_size=cfg.batch_size, num_classes=num_classes,
                      scales=cfg.anchor_scales, ratios=cfg.anchor_ratios, feature_stride=cfg.feature_stride,
-                     allowed_border=cfg.allowed_border, rpn_batch_size=cfg.rpn_batch_size,
+                     base_size=cfg.base_size, allowed_border=cfg.allowed_border, rpn_batch_size=cfg.rpn_batch_size,
+                     rpn_channels=cfg.rpn_channels, roi_mode=cfg.roi_mode, roi_size=cfg.roi_size,
                      rpn_fg_fraction=cfg.rpn_fg_fraction, rpn_positive_threshold=cfg.rpn_positive_threshold,
                      rpn_negative_threshold=cfg.rpn_negative_threshold,
                      rpn_pre_nms_top_n=cfg.rpn_test_pre_nms_top_n, rpn_post_nms_top_n=cfg.rpn_test_post_nms_top_n,

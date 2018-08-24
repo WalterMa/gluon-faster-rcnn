@@ -14,30 +14,22 @@ class AnchorTargetOp(mx.operator.CustomOp):
 
     def forward(self, is_train, req, in_data, out_data, aux):
         # im_info.shape(batch_size, 3)
-        rpn_cls_score = in_data[0]
+        feat = in_data[0]
         gt_boxes = in_data[1]
         im_info = in_data[2]
-        base_anchors = in_data[3]
-        feat_stride = in_data[4]
-        allowed_border = in_data[5]
+        anchors = in_data[3]
+        allowed_border = in_data[4]
 
-        ctx = rpn_cls_score.context
-        batch_size = rpn_cls_score.shape[0]
-        feat_height, feat_width = rpn_cls_score.shape[-2:]
-        A = base_anchors.shape[0]
+        ctx = feat.context
+        batch_size = feat.shape[0]
+        feat_height, feat_width = feat.shape[-2:]
+        A = anchors.shape[-2]
         K = feat_height * feat_width
         N = K * A
-        # generate anchors shifts
-        shift_x = (nd.arange(0, feat_width, ctx=ctx) * feat_stride). \
-            broadcast_to((feat_height, feat_width)).reshape(K)
-        shift_y = (nd.arange(0, feat_height, ctx=ctx) * feat_stride). \
-            reshape(feat_height, 1).broadcast_to((feat_height, feat_width)).reshape(K)
-        # add A anchors (1, A, 4) to cell K shifts (K, 1, 4) to get shift anchors (K, A, 4)
-        # then reshape and broadcast to (batch_size, K*A, 4) shifted anchors
-        shifts = nd.stack(shift_x, shift_y, shift_x, shift_y, axis=-1).reshape(K, 1, 4)
-        all_anchors = (base_anchors.reshape((1, A, 4)) + shifts).reshape(1, N, 4) \
-            .broadcast_to((batch_size, N, 4))
 
+        # slice to feat size and broadcast along batch axis
+        all_anchors = anchors.slice(begin=(0, 0), end=(feat_height, feat_width))\
+            .reshape((1, -1, 4)).broadcast_to((batch_size, N, 4))
         # keep only inside anchors, set outside anchors coordinate = (-1, -1, -1, -1)
         inside_bool_mask = (all_anchors[:, :, 0] >= -allowed_border) * \
                            (all_anchors[:, :, 1] >= -allowed_border) * \
@@ -110,18 +102,18 @@ class AnchorTargetProp(mx.operator.CustomOpProp):
         self._negative_iou_th = float(negative_iou_threshold)
 
     def list_arguments(self):
-        return ['cls_score', 'gt_boxes', 'im_info', 'base_anchors', 'feature_stride', 'allowed_border']
+        return ['feat', 'gt_boxes', 'im_info', 'anchors', 'allowed_border']
 
     def list_outputs(self):
         return ['labels', 'bbox_targets']
 
     def infer_shape(self, in_shape):
-        cls_score_shape = in_shape[0]
-        base_anchors_shape = in_shape[3]
+        feat_shape = in_shape[0]
+        anchors_shape = in_shape[3]
 
-        batch_size = cls_score_shape[0]
-        A = base_anchors_shape[0]
-        feat_height, feat_width = cls_score_shape[-2:]
+        batch_size = feat_shape[0]
+        A = anchors_shape[-2]
+        feat_height, feat_width = feat_shape[-2:]
 
         total_anchor_num = A * feat_height * feat_width
 

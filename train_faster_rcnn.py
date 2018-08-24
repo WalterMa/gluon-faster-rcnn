@@ -1,8 +1,13 @@
 import argparse
+import logging
 import time
+import os
+# disable autotune
+os.environ['MXNET_CUDNN_AUTOTUNE_DEFAULT'] = '0'
 import mxnet as mx
 from mxnet import gluon
 from mxnet import autograd
+from mxnet.gluon.data import DataLoader
 from rcnn import FasterRCNN
 from rcnn.loss import RPNLoss, RCNNLoss
 from rcnn.metrics.loss_metric import LogLossMetric, SmoothL1LossMetric
@@ -11,11 +16,8 @@ from dataset import VOCDetection, RecordDataset
 from utils import set_random_seed, fix_net_params
 from utils.logger import logger
 from utils.config import default, generate_config
-from dataset.dataloader import DetectionDataLoader
-from rcnn.transforms import FasterRCNNDefaultTrainTransform, FasterRCNNDefaultValTransform
-import os
-import logging
-
+from dataset.transforms import FasterRCNNDefaultTrainTransform, FasterRCNNDefaultValTransform
+from dataset.batchify import FasterRCNNDefaultBatchify
 
 def train_faster_rcnn(net, train_data, val_data, cfg):
     """Training pipeline"""
@@ -180,7 +182,8 @@ def get_faster_rcnn(pretrained_base, cfg):
     return FasterRCNN(network=cfg.network, pretrained_base=pretrained_base, batch_size=cfg.batch_size,
                       num_classes=cfg.num_classes,
                       scales=cfg.anchor_scales, ratios=cfg.anchor_ratios, feature_stride=cfg.feature_stride,
-                      allowed_border=cfg.allowed_border, rpn_batch_size=cfg.rpn_batch_size,
+                      base_size=cfg.base_size, allowed_border=cfg.allowed_border, rpn_batch_size=cfg.rpn_batch_size,
+                      rpn_channels=cfg.rpn_channels, roi_mode=cfg.roi_mode, roi_size=cfg.roi_size,
                       rpn_fg_fraction=cfg.rpn_fg_fraction, rpn_positive_threshold=cfg.rpn_positive_threshold,
                       rpn_negative_threshold=cfg.rpn_negative_threshold,
                       rpn_pre_nms_top_n=cfg.rpn_pre_nms_top_n, rpn_post_nms_top_n=cfg.rpn_post_nms_top_n,
@@ -224,10 +227,12 @@ def get_dataset(dataset, dataset_path):
 
 def get_dataloader(train_dataset, val_dataset, cfg):
     """Get dataloader."""
-    train_loader = DetectionDataLoader(train_dataset, cfg.batch_size, shuffle=True, last_batch='rollover',
-                                       num_workers=cfg.num_workers)
-    val_loader = DetectionDataLoader(val_dataset, cfg.batch_size, False, last_batch='keep',
-                                     num_workers=cfg.num_workers)
+    train_loader = DataLoader(train_dataset, cfg.batch_size, shuffle=True, last_batch='rollover',
+                              batchify_fn=FasterRCNNDefaultBatchify(cfg.image_max_size, cfg.label_max_size,
+                                                                    cfg.num_workers), num_workers=cfg.num_workers)
+    val_loader = DataLoader(val_dataset, cfg.batch_size, False, last_batch='keep',
+                            batchify_fn=FasterRCNNDefaultBatchify(cfg.image_max_size, cfg.label_max_size,
+                                                                  cfg.num_workers), num_workers=cfg.num_workers)
     return train_loader, val_loader
 
 
@@ -261,8 +266,6 @@ def parse_args():
 
 
 if __name__ == '__main__':
-    # set 0 to disable Running performance tests
-    # cmd: set MXNET_CUDNN_AUTOTUNE_DEFAULT=0
     # set random seed for python, mxnet and numpy
     set_random_seed(233)
 

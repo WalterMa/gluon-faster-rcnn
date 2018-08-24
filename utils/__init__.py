@@ -1,7 +1,7 @@
 import random as pyrandom
 import numpy as np
 import mxnet as mx
-from .config import vgg16_fixed_params
+from .config import vgg16_fixed_params_pattern, resnet50_v1b_fixed_params_pattern
 from .logger import logger
 
 __all__ = ['set_random_seed', 'fix_net_params']
@@ -32,15 +32,16 @@ def fix_net_params(net, name='vgg16'):
     """
     Fix network parameters, fixed_params defined in ./config.py
     """
-    fixed_params = {
-        'vgg16': vgg16_fixed_params
+    fixed_params_pattern = {
+        'vgg16': vgg16_fixed_params_pattern,
+        'resnet50_v1b': resnet50_v1b_fixed_params_pattern
     }
-    if name not in fixed_params:
+    if name not in fixed_params_pattern:
         raise ValueError(
             'Model %s does not configure fixed parameters. Available options are\n\t%s' % (
-                name, '\n\t'.join(sorted(fixed_params.keys()))))
+                name, '\n\t'.join(sorted(fixed_params_pattern.keys()))))
 
-    param_dict = net.collect_params()
-    for param in fixed_params[name]:
-        param_dict[param].grad_req = 'null'
-    logger.info('Fixed such params for net:\n%s' % fixed_params[name])
+    param_dict = net.collect_params(fixed_params_pattern[name])
+    for _, param in param_dict.items():
+        param.grad_req = 'null'
+    logger.info('Fixed such params for net:\n%s' % param_dict)
